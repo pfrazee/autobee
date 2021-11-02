@@ -20,12 +20,12 @@ await writer2.ready()
 const autobee = new Autobee({inputs: [writer1, writer2], defaultInput: writer1, indexes: index})
 await autobee.ready()
 
-await autobee.put('a', {foo: 'writer1'})
-await autobee.put('b', {foo: 'writer1'})
+await autobee.put('a', 'writer1')
+await autobee.put('b', 'writer1')
 await autobee.get('a') => // {value: 'writer1', ...}
 await autobee.get('b') => // {value: 'writer1', ...}
 
-await autobee.bee(writer2).put('a', {foo: 'writer2'})
+await autobee.bee(writer2).put('a', 'writer2')
 await autobee.get('a') => // {value: 'writer2', ...}
 await autobee.get('b') => // {value: 'writer1', ...}
 
