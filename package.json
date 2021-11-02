@@ -1,0 +1,31 @@
+{
+  "name": "autobee",
+  "version": "0.0.1",
+  "description": "An experiment with Autobase and Hyperbee",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "ava -s test/*.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pfrazee/autobee.git"
+  },
+  "author": "Paul Frazee <pfrazee@gmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/pfrazee/autobee/issues"
+  },
+  "homepage": "https://github.com/pfrazee/autobee#readme",
+  "dependencies": {
+    "autobase": "latest",
+    "codecs": "^2.2.0",
+    "hyperbee": "^1.6.3"
+  },
+  "devDependencies": {
+    "ava": "^3.15.0",
+    "corestore": "next",
+    "hyperswarm": "next",
+    "random-access-memory": "^3.1.2"
+  }
+}
