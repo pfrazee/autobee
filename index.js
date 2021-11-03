@@ -103,6 +103,14 @@ export default class Autobee {
     return await this.defaultBee.del(...args)
   }
 
+  sub (prefix, opts) {
+    const indexBeeSub = this.indexBee.sub(prefix, opts)
+    const defaultBeeSub = this.defaultBee.sub(prefix, opts)
+    indexBeeSub.put = defaultBeeSub.put.bind(defaultBeeSub)
+    indexBeeSub.del = defaultBeeSub.del.bind(defaultBeeSub)
+    return indexBeeSub
+  }
+
   async _apply (batch) {
     const b = this.indexBee.batch({ update: false })
     for (const node of batch) {
