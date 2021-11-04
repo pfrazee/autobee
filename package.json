@@ -20,6 +20,7 @@
   "dependencies": {
     "autobase": "latest",
     "codecs": "^2.2.0",
+    "compact-encoding": "^2.5.1",
     "hyperbee": "^1.6.3"
   },
   "devDependencies": {

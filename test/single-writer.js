@@ -23,14 +23,8 @@ ava.serial('Write, read, delete values', async (t) => {
   await autobee.put('b', 'bar')
   t.is((await autobee.get('a')).value, 'foo')
   t.is((await autobee.get('b')).value, 'bar')
-  t.is((await autobee.bee(writer1).get('a')).value, 'foo')
-  t.is((await autobee.bee(writer1).get('b')).value, 'bar')
 
   for await (const item of autobee.createReadStream()) {
-    if (item.key === 'a') t.is(item.value, 'foo')
-    if (item.key === 'b') t.is(item.value, 'bar')
-  }
-  for await (const item of autobee.bee(writer1).createReadStream()) {
     if (item.key === 'a') t.is(item.value, 'foo')
     if (item.key === 'b') t.is(item.value, 'bar')
   }
@@ -39,15 +33,11 @@ ava.serial('Write, read, delete values', async (t) => {
   await autobee.put('a', 'FOO')
   t.is((await autobee.get('a')).value, 'FOO')
   t.is((await autobee.get('b')).value, 'BAR')
-  t.is((await autobee.bee(writer1).get('a')).value, 'FOO')
-  t.is((await autobee.bee(writer1).get('b')).value, 'BAR')
 
   await autobee.del('a')
   await autobee.del('b')
   t.is(await autobee.get('a'), null)
   t.is(await autobee.get('b'), null)
-  t.is(await autobee.bee(writer1).get('a'), null)
-  t.is(await autobee.bee(writer1).get('b'), null)
 })
 
 ava.serial('Write, read, delete sub() values', async (t) => {
@@ -55,14 +45,8 @@ ava.serial('Write, read, delete sub() values', async (t) => {
   await autobee.sub('test').put('b', 'bar')
   t.is((await autobee.sub('test').get('a')).value, 'foo')
   t.is((await autobee.sub('test').get('b')).value, 'bar')
-  t.is((await autobee.bee(writer1).sub('test').get('a')).value, 'foo')
-  t.is((await autobee.bee(writer1).sub('test').get('b')).value, 'bar')
 
   for await (const item of autobee.sub('test').createReadStream()) {
-    if (item.key === 'a') t.is(item.value, 'foo')
-    if (item.key === 'b') t.is(item.value, 'bar')
-  }
-  for await (const item of autobee.bee(writer1).sub('test').createReadStream()) {
     if (item.key === 'a') t.is(item.value, 'foo')
     if (item.key === 'b') t.is(item.value, 'bar')
   }
@@ -75,10 +59,6 @@ ava.serial('Write, read, delete sub() values', async (t) => {
   t.is((await autobee.sub('test').get('b')).value, 'BAR')
   t.is((await autobee.sub('test2').get('a')).value, 'another')
   t.is((await autobee.sub('test2').get('b')).value, 'value')
-  t.is((await autobee.bee(writer1).sub('test').get('a')).value, 'FOO')
-  t.is((await autobee.bee(writer1).sub('test').get('b')).value, 'BAR')
-  t.is((await autobee.bee(writer1).sub('test2').get('a')).value, 'another')
-  t.is((await autobee.bee(writer1).sub('test2').get('b')).value, 'value')
 
   await autobee.sub('test').del('a')
   await autobee.sub('test').del('b')
@@ -86,8 +66,4 @@ ava.serial('Write, read, delete sub() values', async (t) => {
   t.is(await autobee.sub('test').get('b'), null)
   t.is((await autobee.sub('test2').get('a')).value, 'another')
   t.is((await autobee.sub('test2').get('b')).value, 'value')
-  t.is(await autobee.bee(writer1).sub('test').get('a'), null)
-  t.is(await autobee.bee(writer1).sub('test').get('b'), null)
-  t.is((await autobee.bee(writer1).sub('test2').get('a')).value, 'another')
-  t.is((await autobee.bee(writer1).sub('test2').get('b')).value, 'value')
 })
