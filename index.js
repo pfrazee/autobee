@@ -22,8 +22,6 @@ export default class Autobee {
       keyEncoding: 'utf-8',
       valueEncoding
     })
-
-    this._clocks = new Map()
   }
 
   async ready () {
@@ -39,6 +37,14 @@ export default class Autobee {
     return await this.indexBee.get(...args)
   }
 
+  async getConflicts (key) {
+    const entry = await this.indexBee.sub('_meta').get(key)
+    if (entry && entry.value?.length > 1) {
+      return entry.value.map(item => item.value)
+    }
+    return []
+  }
+
   createReadStream (...args) {
     return this.indexBee.createReadStream(...args)
   }
@@ -49,7 +55,7 @@ export default class Autobee {
     const op = OpLogMessage.put(
       Buffer.from(key, 'utf-8'),
       this._valueEncoder.encode(value),
-      {} // CLOCK TODO
+      await genClock(this, core)
     )
     return await this.autobase.append(op.encode(), null, core)
   }
@@ -59,7 +65,7 @@ export default class Autobee {
     if (opts?.prefix) key = `${opts.prefix}${key}`
     const op = OpLogMessage.del(
       Buffer.from(key, 'utf-8'),
-      {} // CLOCK TODO
+      await genClock(this, core)
     )
     return await this.autobase.append(op.encode(), null, core)
   }
@@ -102,39 +108,32 @@ export default class Autobee {
         op = OpLogMessage.decode(node.value)
       } catch (e) {
         // skip: not an op
-        console.debug('Invalid op', e, node)
         continue
       }
 
       // console.debug('OP', op)
       if (!op.op) {
         // skip: not an op
-        console.debug('Invalid op', op)
         continue
       }
 
-      // console.log('applying', node, clocks)
-      // TODO: handle conflicts
-
-      if (op.key) {
+      if (op.key && (op.op === 'put' || op.op === 'del')) {
         const key = op.key.toString('utf-8')
         const value = op.value ? this._valueEncoder.decode(op.value) : undefined
         
-        const pastClock = this._clocks.get(key)
-
         // console.debug(key, value)
         if (op.op === 'put') await b.put(key, value)
         else if (op.op === 'del') await b.del(key)
         
-        this._clocks.set(key, {change: change.toString('hex'), seq: node.seq})
-        // console.debug(pastClock, this._clocks.get(key), clocks.local)
-        if (pastClock) {
-          if (!clocks.local.has(pastClock.change) || clocks.local.get(pastClock.change) < pastClock.seq) {
-            // console.debug('CONFLICT DETECTED', key)
-          } else {
-            // console.debug('CONFLICT RESOLVED', key)
-          }
+        const meta = await b.get(`_meta\x00${key}`, {update: false, valueEncoding: 'json'})
+        let metaValue
+        if (meta && Array.isArray(meta.value)) {
+          metaValue = meta.value.filter(entry => !leftDominatesRight(op.clock, entry.clock))
+          metaValue.push({clock: op.clock, value})
+        } else {
+          metaValue = [{clock: op.clock, value}]
         }
+        await b.put(`_meta\x00${key}`, metaValue, {valueEncoding: 'json'})
       }
     }
     await b.flush()
@@ -159,4 +158,23 @@ function getWriter (autobee, opts) {
     throw new Error(`Not writable: ${opts.writer || core}`)
   }
   return core
+}
+
+async function genClock (autobee, writer) {
+  const keyStr = writer.key.toString('hex')
+  const clock = Object.fromEntries(await autobee.autobase.latest())
+  clock[keyStr] = (clock[keyStr] || 0) + 1
+  return clock
+}
+
+function leftDominatesRight (left, right) {
+  left = left || {}
+  right = right || {}
+  const keys = new Set(Object.keys(left).concat(Object.keys(right)))
+  for (const k of keys) {
+    const lv = left[k] || 0
+    const rv = right[k] || 0
+    if (lv < rv) return false
+  }
+  return true
 }

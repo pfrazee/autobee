@@ -4,7 +4,7 @@ import ram from 'random-access-memory'
 import Autobee from '../index.js'
 
 ava('Handle conflicts correctly', async (t) => {
-  await testFork (t, 2)
+  await testFork (t, 3)
 })
 
 async function testFork (t, numNodes) {
@@ -21,25 +21,52 @@ async function testFork (t, numNodes) {
     // not connected yet, so the local view is our node's last write
     t.is((await nodes[i].autobee.get('a')).value, `writer${i}`)
     t.is((await nodes[i].autobee.get('b')).value, `writer${i}`)
+
+    // and no conflicts
+    t.deepEqual(await nodes[i].autobee.getConflicts('a'), [])
+    t.deepEqual(await nodes[i].autobee.getConflicts('b'), [])
   }
 
   console.log('\nHEALING\n')
   heal()
 
+  const conflictValue = []
+  for (let i = 0; i < numNodes; i++) conflictValue.push(`writer${i}`)
+  conflictValue.sort()
+
   for (let i = 0; i < numNodes; i++) {
     // connected now, so the "first" writer will win
     t.is((await nodes[i].autobee.get('a')).value, `writer0`)
     t.is((await nodes[i].autobee.get('b')).value, `writer0`)
+
+    // and conflicts are stored
+    t.deepEqual((await nodes[i].autobee.getConflicts('a')).sort(), conflictValue)
+    t.deepEqual((await nodes[i].autobee.getConflicts('b')).sort(), conflictValue)
   }
 
   console.log('\nOVERWRITING\n')
-  await nodes[1].autobee.put('a', 'writer1')
   await nodes[1].autobee.put('b', 'writer1')
 
   for (let i = 0; i < numNodes; i++) {
-    // merging write means node1 now wins
+    // merging write on b means node1 now wins for b
+    t.is((await nodes[i].autobee.get('a')).value, `writer0`)
+    t.is((await nodes[i].autobee.get('b')).value, `writer1`)
+
+    // and no conflicts on b
+    t.deepEqual((await nodes[i].autobee.getConflicts('a')).sort(), conflictValue)
+    t.deepEqual(await nodes[i].autobee.getConflicts('b'), [])
+  }
+
+  await nodes[1].autobee.put('a', 'writer1')
+
+  for (let i = 0; i < numNodes; i++) {
+    // both values merged
     t.is((await nodes[i].autobee.get('a')).value, `writer1`)
     t.is((await nodes[i].autobee.get('b')).value, `writer1`)
+
+    // and no conflicts on either
+    t.deepEqual(await nodes[i].autobee.getConflicts('a'), [])
+    t.deepEqual(await nodes[i].autobee.getConflicts('b'), [])
   }
 }
 

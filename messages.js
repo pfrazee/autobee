@@ -8,6 +8,7 @@ const OpLogMessageSchema = {
     c.array(c.buffer).preencode(state, clock.keys)
     c.array(c.uint).preencode(state, clock.values)
   },
+
   encode (state, op) {
     c.string.encode(state, op.op)
     c.array(c.buffer).encode(state, op.data)
@@ -15,16 +16,13 @@ const OpLogMessageSchema = {
     c.array(c.buffer).encode(state, clock.keys)
     c.array(c.uint).encode(state, clock.values)
   },
+
   decode (state) {
     const op = c.string.decode(state)
     const data = c.array(c.buffer).decode(state)
     const clockKeys = c.array(c.buffer).decode(state)
     const clockValues = c.array(c.uint).decode(state)
-    const clock = {}
-    for (let i = 0; i < clockKeys.length; i++) {
-      clock[clockKeys[i]] = clockValues[i] || 0
-    }
-    return new OpLogMessage(op, data, clock)
+    return new OpLogMessage(op, data, zip(clockKeys, clockValues))
   }
 }
 
@@ -36,12 +34,7 @@ export class OpLogMessage {
   }
 
   get clockUnzipped () {
-    const keys = [], values = []
-    for (const k in this.clock) {
-      keys.push(Buffer.from(k, 'hex'))
-      values.push(clock[k])
-    }
-    return {keys, values}
+    return unzip(this.clock)
   }
 
   get key () {
@@ -71,4 +64,21 @@ export class OpLogMessage {
   static decode (buf) {
     return c.decode(OpLogMessageSchema, buf)
   }
+}
+
+function unzip (obj) {
+  const keys = [], values = []
+  for (const k in obj) {
+    keys.push(Buffer.from(k, 'hex'))
+    values.push(obj[k])
+  }
+  return {keys, values}
+}
+
+function zip (keys, values) {
+  const obj = {}
+  for (let i = 0; i < keys.length; i++) {
+    obj[keys[i].toString('hex')] = values[i] || 0
+  }
+  return obj
 }
