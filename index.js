@@ -13,13 +13,11 @@ export default class Autobee {
     
     this.autobase = new Autobase(inputs, {indexes, input: defaultInput})
 
-    // TODO should this.index possibly come from indexes?
-    this.index = this.autobase.createRebasedIndex({
+    const index = this.autobase.createRebasedIndex({
       unwrap: true,
       apply: this._apply.bind(this)
     })
-
-    this.indexBee = new Hyperbee(this.index, {
+    this.indexBee = new Hyperbee(index, {
       extension: false,
       keyEncoding: 'utf-8',
       valueEncoding
@@ -37,14 +35,6 @@ export default class Autobee {
     return !!this.autobase.inputs.find(core => core.writable)
   }
 
-  get config () {
-    return {
-      inputs: this.autobase.inputs,
-      defaultInput: this.autobase.defaultInput,
-      defaultIndexes: this.defaultIndexes
-    }
-  }
-
   async get (...args) {
     return await this.indexBee.get(...args)
   }
@@ -54,24 +44,24 @@ export default class Autobee {
   }
 
   async put (key, value, opts) {
-    const core = this.autobase.defaultInput
+    const core = getWriter(this, opts)
     if (opts?.prefix) key = `${opts.prefix}${key}`
     const op = OpLogMessage.put(
       Buffer.from(key, 'utf-8'),
       this._valueEncoder.encode(value),
       {} // CLOCK TODO
     )
-    return await core.append(op.encode())
+    return await this.autobase.append(op.encode(), null, core)
   }
 
   async del (key, opts) {
-    const core = this.autobase.defaultInput
+    const core = getWriter(this, opts)
     if (opts?.prefix) key = `${opts.prefix}${key}`
     const op = OpLogMessage.del(
       Buffer.from(key, 'utf-8'),
       {} // CLOCK TODO
     )
-    return await core.append(op.encode())
+    return await this.autobase.append(op.encode(), null, core)
   }
 
   sub (prefix, opts) {
@@ -93,9 +83,13 @@ export default class Autobee {
   }
 
   async _apply (batch, clocks, change) {
-    console.log('apply hit')
     if (this.indexBee._feed.length === 0) {
-      // TODO still needed?
+      // HACK
+      // when the indexBee is using the in-memory rebased core
+      // (because it doesnt have one of its own, and is relying on a remote index)
+      // it doesn't correctly write its header
+      // so we do it here
+      // -prf
       await this.indexBee._feed.append(HyperbeeMessages.Header.encode({
         protocol: 'hyperbee'
       }))
@@ -103,17 +97,16 @@ export default class Autobee {
 
     const b = this.indexBee.batch({ update: false })
     for (const node of batch) {
-      console.debug('apply', node)
       let op = undefined
       try {
-        op = OpLogMessage.decode(node)
+        op = OpLogMessage.decode(node.value)
       } catch (e) {
         // skip: not an op
         console.debug('Invalid op', e, node)
         continue
       }
 
-      console.debug('apply', op)
+      // console.debug('OP', op)
       if (!op.op) {
         // skip: not an op
         console.debug('Invalid op', op)
@@ -129,21 +122,41 @@ export default class Autobee {
         
         const pastClock = this._clocks.get(key)
 
-        console.log(key, value)
+        // console.debug(key, value)
         if (op.op === 'put') await b.put(key, value)
         else if (op.op === 'del') await b.del(key)
         
         this._clocks.set(key, {change: change.toString('hex'), seq: node.seq})
-        console.log(pastClock, this._clocks.get(key), clocks.local)
+        // console.debug(pastClock, this._clocks.get(key), clocks.local)
         if (pastClock) {
           if (!clocks.local.has(pastClock.change) || clocks.local.get(pastClock.change) < pastClock.seq) {
-            console.log('CONFLICT DETECTED', key)
+            // console.debug('CONFLICT DETECTED', key)
           } else {
-            console.log('CONFLICT RESOLVED', key)
+            // console.debug('CONFLICT RESOLVED', key)
           }
         }
       }
     }
     await b.flush()
   }
+}
+
+function getWriter (autobee, opts) {
+  let core
+  if (opts?.writer) {
+    if (opts.writer.key) {
+      core = autobee.autobase.inputs.find(c => c.key.equals(opts.writer.key)) 
+    } else if (Buffer.isBuffer(opts.writer)) {
+      core = autobee.autobase.inputs.find(c => c.key.equals(opts.writer)) 
+    }
+  } else {
+    core = autobee.autobase.defaultInput
+  }
+  if (!core) {
+    throw new Error(`Not a writer: ${opts.writer}`)
+  }
+  if (!core.writable) {
+    throw new Error(`Not writable: ${opts.writer || core}`)
+  }
+  return core
 }

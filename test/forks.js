@@ -4,7 +4,7 @@ import ram from 'random-access-memory'
 import Autobee from '../index.js'
 
 ava('Handle conflicts correctly', async (t) => {
-  await testFork (t, 3)
+  await testFork (t, 2)
 })
 
 async function testFork (t, numNodes) {
@@ -13,25 +13,14 @@ async function testFork (t, numNodes) {
   console.log('WRITERS', nodes[0].writers.map(w => w.key.toString('hex')))
 
   for (let i = 0; i < numNodes; i++) {
-    await nodes[i].autobee.put('a', `writer${i}`)
-    await nodes[i].autobee.put('b', `writer${i}`)
+    await nodes[i].autobee.put('a', `writer${i}`, {writer: nodes[i].writers[i]})
+    await nodes[i].autobee.put('b', `writer${i}`, {writer: nodes[i].writers[i]})
   }
   
   for (let i = 0; i < numNodes; i++) {
     // not connected yet, so the local view is our node's last write
     t.is((await nodes[i].autobee.get('a')).value, `writer${i}`)
     t.is((await nodes[i].autobee.get('b')).value, `writer${i}`)
-    for (let j = 0; j < numNodes; j++) {
-      if (i === j) {
-        // our own writer
-        t.is((await nodes[i].autobee.bee(nodes[i].writers[j]).get('a')).value, `writer${j}`)
-        t.is((await nodes[i].autobee.bee(nodes[i].writers[j]).get('b')).value, `writer${j}`)
-      } else {
-        // a remote writer
-        t.is(await nodes[i].autobee.bee(nodes[i].writers[j]).get('a'), null)
-        t.is(await nodes[i].autobee.bee(nodes[i].writers[j]).get('b'), null)
-      }
-    }
   }
 
   console.log('\nHEALING\n')
@@ -41,10 +30,6 @@ async function testFork (t, numNodes) {
     // connected now, so the "first" writer will win
     t.is((await nodes[i].autobee.get('a')).value, `writer0`)
     t.is((await nodes[i].autobee.get('b')).value, `writer0`)
-    for (let j = 0; j < numNodes; j++) {
-      t.is((await nodes[i].autobee.bee(nodes[i].writers[j]).get('a')).value, `writer${j}`)
-      t.is((await nodes[i].autobee.bee(nodes[i].writers[j]).get('b')).value, `writer${j}`)
-    }
   }
 
   console.log('\nOVERWRITING\n')
@@ -55,10 +40,6 @@ async function testFork (t, numNodes) {
     // merging write means node1 now wins
     t.is((await nodes[i].autobee.get('a')).value, `writer1`)
     t.is((await nodes[i].autobee.get('b')).value, `writer1`)
-    for (let j = 0; j < numNodes; j++) {
-      t.is((await nodes[i].autobee.bee(nodes[i].writers[j]).get('a')).value, `writer${j}`)
-      t.is((await nodes[i].autobee.bee(nodes[i].writers[j]).get('b')).value, `writer${j}`)
-    }
   }
 }
 
