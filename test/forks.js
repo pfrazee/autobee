@@ -45,11 +45,11 @@ async function disjointThenPartiallyHealed (t, numNodes, numWrites) {
       for (let j = 0; j < numWrites; j++) {
         if (i >= numHealed) {
           // not yet connected, still only the local view with no conflicts
-          t.is((await nodes[i].autobee.get(''+j)).value, `writer${i}`, `unhealed read | numHealed=${numHealed} node${i} write${j}`)
-          t.deepEqual(await nodes[i].autobee.getConflicts(''+j), [], `unhealed conflicts | numHealed=${numHealed} node${i} write${j}`)
+          t.is((await nodes[i].autobee.get(''+j)).value, `writer${i}`, `unhealed read | numHealed=${numHealed} node${i} write${j} numNodes=${numNodes} numWrites=${numWrites}`)
+          t.deepEqual(await nodes[i].autobee.getConflicts(''+j), [], `unhealed conflicts | numHealed=${numHealed} node${i} write${j} numNodes=${numNodes} numWrites=${numWrites}`)
         } else {
           // connected but not merged, so conflicts will be stored
-          t.deepEqual((await nodes[i].autobee.getConflicts(''+j)).sort(), conflictValue, `healed conflicts not merged | numHealed=${numHealed} node${i} write${j}`)
+          t.deepEqual((await nodes[i].autobee.getConflicts(''+j)).sort(), conflictValue, `healed conflicts not merged | numHealed=${numHealed} node${i} write${j} numNodes=${numNodes} numWrites=${numWrites}`)
         }
       }
     }
@@ -89,9 +89,9 @@ async function disjointThenFullyHealed (t, numNodes, numWrites) {
   for (let i = 0; i < numNodes; i++) {
     for (let j = 0; j < numWrites; j++) {
       // not connected yet, so the local view is our node's last write
-      t.is((await nodes[i].autobee.get(''+j)).value, `writer${i}`)
+      t.is((await nodes[i].autobee.get(''+j)).value, `writer${i}`, `unhealed read | node${i} write${j} numNodes=${numNodes} numWrites=${numWrites}`)
       // and no conflicts
-      t.deepEqual(await nodes[i].autobee.getConflicts(''+j), [])
+      t.deepEqual(await nodes[i].autobee.getConflicts(''+j), [], `unhealed conflicts | node${i} write${j} numNodes=${numNodes} numWrites=${numWrites}`)
     }
   }
 
@@ -104,9 +104,9 @@ async function disjointThenFullyHealed (t, numNodes, numWrites) {
   for (let i = 0; i < numNodes; i++) {
     for (let j = 0; j < numWrites; j++) {
       // connected now, so the "first" writer will win
-      t.is((await nodes[i].autobee.get(''+j)).value, `writer0`)
+      t.is((await nodes[i].autobee.get(''+j)).value, `writer0`, `healed read not merged | node${i} write${j} numNodes=${numNodes} numWrites=${numWrites}`)
       // and conflicts are stored
-      t.deepEqual((await nodes[i].autobee.getConflicts(''+j)).sort(), conflictValue)
+      t.deepEqual((await nodes[i].autobee.getConflicts(''+j)).sort(), conflictValue, `healed conflicts not merged | node${i} write${j} numNodes=${numNodes} numWrites=${numWrites}`)
     }
   }
 
@@ -117,12 +117,12 @@ async function disjointThenFullyHealed (t, numNodes, numWrites) {
       for (let k = 0; k < numWrites; k++) {
         if (k <= j) {
           // merging write means node1 now wins
-          t.is((await nodes[i].autobee.get(''+k)).value, `writer1`)
-          t.deepEqual(await nodes[i].autobee.getConflicts(''+k), [])
+          t.is((await nodes[i].autobee.get(''+k)).value, `writer1`, `healed merged read | node${i} write${j} read${k} numNodes=${numNodes} numWrites=${numWrites}`)
+          t.deepEqual(await nodes[i].autobee.getConflicts(''+k), [], `healed merged conflicts | node${i} write${j} read${k} numNodes=${numNodes} numWrites=${numWrites}`)
         } else {
           // still in conflict because not written yet
-          t.is((await nodes[i].autobee.get(''+k)).value, `writer0`)
-          t.deepEqual((await nodes[i].autobee.getConflicts(''+k)).sort(), conflictValue)
+          t.is((await nodes[i].autobee.get(''+k)).value, `writer0`, `healed read not merged | node${i} write${j} read${k}`)
+          t.deepEqual((await nodes[i].autobee.getConflicts(''+k)).sort(), conflictValue,  `healed conflicts not merged | node${i} write${j} read${k} numNodes=${numNodes} numWrites=${numWrites}`)
         }
       }
     }
@@ -197,10 +197,4 @@ async function setup (numNodes) {
       }
     }
   }}
-}
-
-async function logall (prefix, src) {
-  for await (const item of src.createReadStream()) {
-    console.log(prefix, item)
-  }
 }

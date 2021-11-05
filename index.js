@@ -124,15 +124,26 @@ export default class Autobee {
         // console.debug(key, value)
         if (op.op === 'put') await b.put(key, value)
         else if (op.op === 'del') await b.del(key)
+
+        // TODO can this replace the recorded clock in the op?
+        const DEBUG_opClock = Object.fromEntries(clocks.local)
+        const changeStr = change.toString('hex')
+        DEBUG_opClock[changeStr] = (DEBUG_opClock[changeStr] || 0) + 1
         
         const meta = await b.get(`_meta\x00${key}`, {update: false, valueEncoding: 'json'})
         let metaValue
+        // console.log({
+        //   'op clock': op.clock,
+        //   'node clock': clocks,
+        //   'meta': JSON.stringify(meta?.value)
+        // })
         if (meta && Array.isArray(meta.value)) {
-          metaValue = meta.value.filter(entry => !leftDominatesRight(op.clock, entry.clock))
-          metaValue.push({clock: op.clock, value})
+          metaValue = meta.value.filter(entry => !leftDominatesRight(DEBUG_opClock, entry.clock))
+          metaValue.push({clock: DEBUG_opClock, value})
         } else {
-          metaValue = [{clock: op.clock, value}]
+          metaValue = [{clock: DEBUG_opClock, value}]
         }
+        // if (metaValue.length > 1) console.log('CONFLICT')
         await b.put(`_meta\x00${key}`, metaValue, {valueEncoding: 'json'})
       }
     }
