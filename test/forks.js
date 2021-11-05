@@ -4,30 +4,97 @@ import ram from 'random-access-memory'
 import Autobee from '../index.js'
 
 ava('Handle conflicts correctly', async (t) => {
-  await testFork (t, 3)
+  for (let i = 2; i < 6; i++) {
+    for (let j = 2; j < 5; j++) {
+      console.log(`disjointThenFullyHealed( nodes=${i} writes=${j} )`)
+      await disjointThenFullyHealed (t, i, j)
+    }
+  }
+  for (let i = 2; i < 6; i++) {
+    for (let j = 2; j < 5; j++) {
+      console.log(`disjointThenPartiallyHealed( nodes=${i} writes=${j} )`)
+      await disjointThenPartiallyHealed (t, i, j)
+    }
+  }
 })
 
-async function testFork (t, numNodes) {
+async function disjointThenPartiallyHealed (t, numNodes, numWrites) {
   const {nodes, heal} = await setup(numNodes)
 
-  console.log('WRITERS', nodes[0].writers.map(w => w.key.toString('hex')))
-
   for (let i = 0; i < numNodes; i++) {
-    await nodes[i].autobee.put('a', `writer${i}`, {writer: nodes[i].writers[i]})
-    await nodes[i].autobee.put('b', `writer${i}`, {writer: nodes[i].writers[i]})
+    for (let j = 0; j < numWrites; j++) {
+      await nodes[i].autobee.put(''+j, `writer${i}`, {writer: nodes[i].writers[i]})
+    }
   }
   
   for (let i = 0; i < numNodes; i++) {
-    // not connected yet, so the local view is our node's last write
-    t.is((await nodes[i].autobee.get('a')).value, `writer${i}`)
-    t.is((await nodes[i].autobee.get('b')).value, `writer${i}`)
-
-    // and no conflicts
-    t.deepEqual(await nodes[i].autobee.getConflicts('a'), [])
-    t.deepEqual(await nodes[i].autobee.getConflicts('b'), [])
+    for (let j = 0; j < numWrites; j++) {
+      // not connected yet, so the local view is our node's last write
+      t.is((await nodes[i].autobee.get(''+j)).value, `writer${i}`)
+      // and no conflicts
+      t.deepEqual(await nodes[i].autobee.getConflicts(''+j), [])
+    }
   }
 
-  console.log('\nHEALING\n')
+  for (let numHealed = 2; numHealed <= numNodes; numHealed++) {
+    heal(numHealed)
+
+    const conflictValue = numHealed === 2 ? [`writer0`, `writer1`] : [`writer1`, `writer${numHealed - 1}`]
+
+    for (let i = 0; i < numNodes; i++) {
+      for (let j = 0; j < numWrites; j++) {
+        if (i >= numHealed) {
+          // not yet connected, still only the local view with no conflicts
+          t.is((await nodes[i].autobee.get(''+j)).value, `writer${i}`, `unhealed read | numHealed=${numHealed} node${i} write${j}`)
+          t.deepEqual(await nodes[i].autobee.getConflicts(''+j), [], `unhealed conflicts | numHealed=${numHealed} node${i} write${j}`)
+        } else {
+          // connected but not merged, so conflicts will be stored
+          t.deepEqual((await nodes[i].autobee.getConflicts(''+j)).sort(), conflictValue, `healed conflicts not merged | numHealed=${numHealed} node${i} write${j}`)
+        }
+      }
+    }
+
+    for (let j = 0; j < numWrites; j++) {
+      await nodes[1].autobee.put(''+j, 'writer1')
+
+      for (let i = 0; i < numNodes; i++) {
+        for (let k = 0; k < numWrites; k++) {
+          if (i >= numHealed) {
+            // not yet connected, still only the local view with no conflicts
+            t.is((await nodes[i].autobee.get(''+j)).value, `writer${i}`)
+            t.deepEqual(await nodes[i].autobee.getConflicts(''+j), [])
+          } else if (k > j) {
+            // still in conflict because no merge-write has occurred
+            t.deepEqual((await nodes[i].autobee.getConflicts(''+k)).sort(), conflictValue)
+          } else {
+            // merging-write with connected nodes means node1 now wins
+            t.is((await nodes[i].autobee.get(''+k)).value, `writer1`)
+            t.deepEqual(await nodes[i].autobee.getConflicts(''+k), [])
+          }
+        }
+      }
+    }
+  }
+}
+
+async function disjointThenFullyHealed (t, numNodes, numWrites) {
+  const {nodes, heal} = await setup(numNodes)
+
+  for (let i = 0; i < numNodes; i++) {
+    for (let j = 0; j < numWrites; j++) {
+      await nodes[i].autobee.put(''+j, `writer${i}`, {writer: nodes[i].writers[i]})
+    }
+  }
+  
+  for (let i = 0; i < numNodes; i++) {
+    for (let j = 0; j < numWrites; j++) {
+      // not connected yet, so the local view is our node's last write
+      t.is((await nodes[i].autobee.get(''+j)).value, `writer${i}`)
+      // and no conflicts
+      t.deepEqual(await nodes[i].autobee.getConflicts(''+j), [])
+    }
+  }
+
   heal()
 
   const conflictValue = []
@@ -35,38 +102,30 @@ async function testFork (t, numNodes) {
   conflictValue.sort()
 
   for (let i = 0; i < numNodes; i++) {
-    // connected now, so the "first" writer will win
-    t.is((await nodes[i].autobee.get('a')).value, `writer0`)
-    t.is((await nodes[i].autobee.get('b')).value, `writer0`)
-
-    // and conflicts are stored
-    t.deepEqual((await nodes[i].autobee.getConflicts('a')).sort(), conflictValue)
-    t.deepEqual((await nodes[i].autobee.getConflicts('b')).sort(), conflictValue)
+    for (let j = 0; j < numWrites; j++) {
+      // connected now, so the "first" writer will win
+      t.is((await nodes[i].autobee.get(''+j)).value, `writer0`)
+      // and conflicts are stored
+      t.deepEqual((await nodes[i].autobee.getConflicts(''+j)).sort(), conflictValue)
+    }
   }
 
-  console.log('\nOVERWRITING\n')
-  await nodes[1].autobee.put('b', 'writer1')
+  for (let j = 0; j < numWrites; j++) {
+    await nodes[1].autobee.put(''+j, 'writer1')
 
-  for (let i = 0; i < numNodes; i++) {
-    // merging write on b means node1 now wins for b
-    t.is((await nodes[i].autobee.get('a')).value, `writer0`)
-    t.is((await nodes[i].autobee.get('b')).value, `writer1`)
-
-    // and no conflicts on b
-    t.deepEqual((await nodes[i].autobee.getConflicts('a')).sort(), conflictValue)
-    t.deepEqual(await nodes[i].autobee.getConflicts('b'), [])
-  }
-
-  await nodes[1].autobee.put('a', 'writer1')
-
-  for (let i = 0; i < numNodes; i++) {
-    // both values merged
-    t.is((await nodes[i].autobee.get('a')).value, `writer1`)
-    t.is((await nodes[i].autobee.get('b')).value, `writer1`)
-
-    // and no conflicts on either
-    t.deepEqual(await nodes[i].autobee.getConflicts('a'), [])
-    t.deepEqual(await nodes[i].autobee.getConflicts('b'), [])
+    for (let i = 0; i < numNodes; i++) {
+      for (let k = 0; k < numWrites; k++) {
+        if (k <= j) {
+          // merging write means node1 now wins
+          t.is((await nodes[i].autobee.get(''+k)).value, `writer1`)
+          t.deepEqual(await nodes[i].autobee.getConflicts(''+k), [])
+        } else {
+          // still in conflict because not written yet
+          t.is((await nodes[i].autobee.get(''+k)).value, `writer0`)
+          t.deepEqual((await nodes[i].autobee.getConflicts(''+k)).sort(), conflictValue)
+        }
+      }
+    }
   }
 }
 
@@ -79,7 +138,7 @@ async function setup (numNodes) {
   finally, create autobees for each node
 
   initially, these nodes will be disconnected from each other as each has their own corestore
-  the heal() function causes them all to connect
+  the heal(n) function causes the first n nodes to connect
   */
 
   // create the nodes
@@ -123,18 +182,18 @@ async function setup (numNodes) {
     await nodes[i].autobee.ready()
   }
 
-  return {nodes, heal: () => {
-    const doneMap = {}
-    for (let i = 0; i < numNodes; i++) {
-      for (let j = 0; j < numNodes; j++) {
+  const connections = new Set()
+  return {nodes, heal: (n = numNodes) => {
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
         if (i === j) continue
         const key = `${Math.min(i, j)}:${Math.max(i, j)}`
-        if (doneMap[key]) continue
+        if (connections.has(key)) continue
 
         const s = nodes[i].store.replicate(true)
         s.pipe(nodes[j].store.replicate(false)).pipe(s)
 
-        doneMap[key] = true
+        connections.add(key)
       }
     }
   }}
