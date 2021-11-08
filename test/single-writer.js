@@ -40,7 +40,7 @@ ava.serial('Write, read, delete values', async (t) => {
   t.is(await autobee.get('b'), null)
 })
 
-ava.serial('Write, read, delete sub() values', async (t) => {
+ava.skip('Write, read, delete sub() values', async (t) => {
   await autobee.sub('test').put('a', 'foo')
   await autobee.sub('test').put('b', 'bar')
   t.is((await autobee.sub('test').get('a')).value, 'foo')

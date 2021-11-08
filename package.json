@@ -21,7 +21,8 @@
     "autobase": "latest",
     "codecs": "^2.2.0",
     "compact-encoding": "^2.5.1",
-    "hyperbee": "^1.6.3"
+    "hyperbee": "^1.6.3",
+    "through2": "^4.0.2"
   },
   "devDependencies": {
     "ava": "^3.15.0",

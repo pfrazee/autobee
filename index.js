@@ -2,7 +2,8 @@ import codecs from 'codecs'
 import Autobase from 'autobase'
 import Hyperbee from 'hyperbee'
 import HyperbeeMessages from 'hyperbee/lib/messages.js'
-import { OpLogMessage } from './messages.js'
+import through from 'through2'
+import { OpLogMessage, IndexWrapper } from './messages.js'
 
 export default class Autobee {
   constructor ({inputs, defaultInput, indexes, valueEncoding} = {}) {
@@ -20,7 +21,7 @@ export default class Autobee {
     this.indexBee = new Hyperbee(index, {
       extension: false,
       keyEncoding: 'utf-8',
-      valueEncoding
+      valueEncoding: 'binary'
     })
   }
 
@@ -33,20 +34,38 @@ export default class Autobee {
     return !!this.autobase.inputs.find(core => core.writable)
   }
 
-  async get (...args) {
-    return await this.indexBee.get(...args)
+  async get (key, opts) {
+    if (opts?.valueEncoding) {
+      delete opts.valueEncoding // TODO support custom encoding
+    }
+    const entry = await this.indexBee.get(key, opts)
+    if (entry) {
+      const wrapper = IndexWrapper.decode(entry.value)
+      entry.value = wrapper.value ? this._valueEncoder.decode(wrapper.value) : undefined
+    }
+    return entry
   }
 
   async getConflicts (key) {
-    const entry = await this.indexBee.sub('_meta').get(key)
-    if (entry && entry.value?.length > 1) {
-      return entry.value.map(item => item.value)
+    const current = await getAllCurrent(this.indexBee, this.indexBee, key)
+    if (current.length <= 1) return []
+    for (const entry of current) {
+      entry.value = entry.value ? this._valueEncoder.decode(entry.value) : undefined
     }
-    return []
+    return current.map(entry => entry.value)
   }
 
-  createReadStream (...args) {
-    return this.indexBee.createReadStream(...args)
+  createReadStream (opts) {
+    if (opts?.valueEncoding) {
+      delete opts.valueEncoding // TODO support custom encoding
+    }
+    const encoder = this._valueEncoder
+    return this.indexBee.createReadStream(opts).pipe(through.obj(function (entry, enc, cb) {
+      const wrapper = IndexWrapper.decode(entry.value)
+      entry.value = wrapper.value ? encoder.decode(wrapper.value) : undefined
+      this.push(entry)
+      cb()
+    }))
   }
 
   async put (key, value, opts) {
@@ -117,34 +136,28 @@ export default class Autobee {
         continue
       }
 
-      if (op.key && (op.op === 'put' || op.op === 'del')) {
+      if (op.key && op.op === 'del') {
         const key = op.key.toString('utf-8')
-        const value = op.value ? this._valueEncoder.decode(op.value) : undefined
-        
-        // console.debug(key, value)
-        if (op.op === 'put') await b.put(key, value)
-        else if (op.op === 'del') await b.del(key)
+        await b.del(key)
+      } else if (op.key && op.op === 'put') {
+        const key = op.key.toString('utf-8')
+        // const value = op.value ? this._valueEncoder.decode(op.value) : undefined
 
         // TODO can this replace the recorded clock in the op?
         const DEBUG_opClock = Object.fromEntries(clocks.local)
         const changeStr = change.toString('hex')
         DEBUG_opClock[changeStr] = (DEBUG_opClock[changeStr] || 0) + 1
+
+        let entries = await getAllCurrent(b, this.indexBee, key)
+        entries = entries.filter(entry => !leftDominatesRight(DEBUG_opClock, entry.clock))
+        // console.log('writing', key, 'conflicts=', entries.map(e => e.seq))
         
-        const meta = await b.get(`_meta\x00${key}`, {update: false, valueEncoding: 'json'})
-        let metaValue
-        // console.log({
-        //   'op clock': op.clock,
-        //   'node clock': clocks,
-        //   'meta': JSON.stringify(meta?.value)
-        // })
-        if (meta && Array.isArray(meta.value)) {
-          metaValue = meta.value.filter(entry => !leftDominatesRight(DEBUG_opClock, entry.clock))
-          metaValue.push({clock: DEBUG_opClock, value})
-        } else {
-          metaValue = [{clock: DEBUG_opClock, value}]
-        }
-        // if (metaValue.length > 1) console.log('CONFLICT')
-        await b.put(`_meta\x00${key}`, metaValue, {valueEncoding: 'json'})
+        await b.put(key, IndexWrapper.encode(new IndexWrapper(
+          op.value,
+          change,
+          entries.map(entry => entry.seq),
+          DEBUG_opClock
+        )))
       }
     }
     await b.flush()
@@ -169,6 +182,23 @@ function getWriter (autobee, opts) {
     throw new Error(`Not writable: ${opts.writer || core}`)
   }
   return core
+}
+
+async function getAllCurrent (batch, bee, key) {
+  const entries = []
+  const currentEntry = await batch.get(key)
+  if (currentEntry) {
+    Object.assign(currentEntry, IndexWrapper.decode(currentEntry.value))
+    entries.push(currentEntry)
+    for (const seq of currentEntry.conflicts) {
+      const entry = await bee.checkout(seq + 1).get(key)
+      if (entry) {
+        Object.assign(entry, IndexWrapper.decode(entry.value))
+        entries.push(entry)
+      }
+    }
+  }
+  return entries
 }
 
 async function genClock (autobee, writer) {

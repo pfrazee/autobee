@@ -36,6 +36,7 @@ async function disjointThenPartiallyHealed (t, numNodes, numWrites) {
     }
   }
 
+  
   for (let numHealed = 2; numHealed <= numNodes; numHealed++) {
     heal(numHealed)
 

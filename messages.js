@@ -22,7 +22,7 @@ const OpLogMessageSchema = {
     const data = c.array(c.buffer).decode(state)
     const clockKeys = c.array(c.buffer).decode(state)
     const clockValues = c.array(c.uint).decode(state)
-    return new OpLogMessage(op, data, zip(clockKeys, clockValues))
+    return new OpLogMessage(op, data, zipClock(clockKeys, clockValues))
   }
 }
 
@@ -34,7 +34,7 @@ export class OpLogMessage {
   }
 
   get clockUnzipped () {
-    return unzip(this.clock)
+    return unzipClock(this.clock)
   }
 
   get key () {
@@ -66,7 +66,61 @@ export class OpLogMessage {
   }
 }
 
-function unzip (obj) {
+const IndexWrapperSchema = {
+  preencode (state, wrapper) {
+    c.buffer.preencode(state, wrapper.value)
+    c.buffer.preencode(state, wrapper.writer)
+    c.array(c.uint).preencode(state, wrapper.conflicts)
+    const clock = wrapper.clockUnzipped
+    c.array(c.buffer).preencode(state, clock.keys)
+    c.array(c.uint).preencode(state, clock.values)
+  },
+
+  encode (state, wrapper) {
+    c.buffer.encode(state, wrapper.value)
+    c.buffer.encode(state, wrapper.writer)
+    c.array(c.uint).encode(state, wrapper.conflicts)
+    const clock = wrapper.clockUnzipped
+    c.array(c.buffer).encode(state, clock.keys)
+    c.array(c.uint).encode(state, clock.values)
+  },
+
+  decode (state) {
+    const value = c.buffer.decode(state)
+    const writer = c.buffer.decode(state)
+    const conflicts = c.array(c.uint).decode(state)
+    const clockKeys = c.array(c.buffer).decode(state)
+    const clockValues = c.array(c.uint).decode(state)
+    return new IndexWrapper(value, writer, conflicts, zipClock(clockKeys, clockValues))
+  }
+}
+
+export class IndexWrapper {
+  constructor (value, writer, conflicts, clock) {
+    this.value = value
+    this.writer = Buffer.isBuffer(writer) ? writer : Buffer.from(writer, 'hex')
+    this.conflicts = conflicts
+    this.clock = clock
+  }
+
+  get clockUnzipped () {
+    return unzipClock(this.clock)
+  }
+
+  encode () {
+    return IndexWrapper.encode(this)
+  }
+
+  static encode (wrapper) {
+    return c.encode(IndexWrapperSchema, wrapper)
+  }
+
+  static decode (buf) {
+    return c.decode(IndexWrapperSchema, buf)
+  }
+}
+
+function unzipClock (obj) {
   const keys = [], values = []
   for (const k in obj) {
     keys.push(Buffer.from(k, 'hex'))
@@ -75,7 +129,7 @@ function unzip (obj) {
   return {keys, values}
 }
 
-function zip (keys, values) {
+function zipClock (keys, values) {
   const obj = {}
   for (let i = 0; i < keys.length; i++) {
     obj[keys[i].toString('hex')] = values[i] || 0
